@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum HttpMethod {
+  GET
+  HEAD
+}
+
+enum IncidentStatus {
+  OPEN
+  RESOLVED
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  name         String    @db.VarChar(100)
+  email        String    @unique @db.VarChar(255)
+  passwordHash String    @map("password_hash")
+  projects     Project[]
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model Project {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String    @db.VarChar(100)
+  description String?   @db.VarChar(500)
+  monitors    Monitor[]
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("projects")
+}
+
+model Monitor {
+  id                 String        @id @default(uuid()) @db.Uuid
+  projectId          String        @map("project_id") @db.Uuid
+  project            Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name               String        @db.VarChar(100)
+  url                String        @db.VarChar(2048)
+  httpMethod         HttpMethod    @default(GET) @map("http_method")
+  intervalSeconds    Int           @default(60) @map("interval_seconds")
+  timeoutMs          Int           @default(5000) @map("timeout_ms")
+  expectedStatusCode Int           @default(200) @map("expected_status_code")
+  isActive           Boolean       @default(true) @map("is_active")
+  lastCheckedAt      DateTime?     @map("last_checked_at")
+  nextCheckAt        DateTime      @default(now()) @map("next_check_at")
+  leaseExpiresAt     DateTime?     @map("lease_expires_at")
+  leaseOwner         String?       @map("lease_owner") @db.VarChar(100)
+  checkResults       CheckResult[]
+  incidents          Incident[]
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+
+  @@index([projectId])
+  @@index([isActive, nextCheckAt])
+  @@map("monitors")
+}
+
+model CheckResult {
+  id             String   @id @default(uuid()) @db.Uuid
+  monitorId      String   @map("monitor_id") @db.Uuid
+  monitor        Monitor  @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  statusCode     Int?     @map("status_code")
+  responseTimeMs Int      @map("response_time_ms")
+  isUp           Boolean  @map("is_up")
+  errorType      String?  @map("error_type") @db.VarChar(50)
+  errorMessage   String?  @map("error_message") @db.VarChar(500)
+  checkedAt      DateTime @default(now()) @map("checked_at")
+
+  @@index([monitorId, checkedAt(sort: Desc)])
+  @@map("check_results")
+}
+
+model Incident {
+  id            String         @id @default(uuid()) @db.Uuid
+  monitorId     String         @map("monitor_id") @db.Uuid
+  monitor       Monitor        @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  status        IncidentStatus @default(OPEN)
+  failureReason String         @map("failure_reason") @db.VarChar(500)
+  activeKey     String?        @unique @map("active_key") @db.Uuid
+  startedAt     DateTime       @default(now()) @map("started_at")
+  resolvedAt    DateTime?      @map("resolved_at")
+
+  @@index([monitorId, startedAt(sort: Desc)])
+  @@map("incidents")
+}

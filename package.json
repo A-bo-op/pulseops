@@ -1,0 +1,26 @@
+{
+  "name": "pulseops",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "build:shared": "pnpm --filter @pulseops/shared build",
+    "predev": "pnpm build:shared && pnpm --filter @pulseops/api db:generate",
+    "dev": "concurrently -n api,web -c magenta,cyan \"pnpm --filter @pulseops/api dev\" \"pnpm --filter @pulseops/web dev\"",
+    "build": "pnpm build:shared && pnpm --filter @pulseops/api db:generate && pnpm --filter @pulseops/api build && pnpm --filter @pulseops/web build",
+    "test": "pnpm build:shared && pnpm --filter @pulseops/api test",
+    "typecheck": "pnpm build:shared && pnpm --filter @pulseops/api typecheck && pnpm --filter @pulseops/web typecheck",
+    "lint": "pnpm --filter @pulseops/web lint",
+    "format": "prettier --write .",
+    "db:generate": "pnpm --filter @pulseops/api db:generate",
+    "db:migrate": "pnpm --filter @pulseops/api db:migrate",
+    "db:studio": "pnpm --filter @pulseops/api db:studio"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "prettier": "^3.6.2"
+  }
+}

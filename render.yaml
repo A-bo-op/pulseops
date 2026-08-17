@@ -1,0 +1,35 @@
+databases:
+  - name: pulseops-postgres
+    databaseName: pulseops
+    user: pulseops
+    plan: free
+
+services:
+  - type: web
+    name: pulseops-api
+    runtime: node
+    plan: free
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build:shared && pnpm --filter @pulseops/api db:generate && pnpm --filter @pulseops/api build && pnpm --filter @pulseops/api db:deploy
+    startCommand: pnpm --filter @pulseops/api start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pulseops-postgres
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: FRONTEND_URL
+        sync: false
+      - key: MONITOR_SCHEDULER_INTERVAL_MS
+        value: 10000
+      - key: DEFAULT_MONITOR_TIMEOUT_MS
+        value: 5000
+      - key: MONITOR_LEASE_DURATION_MS
+        value: 45000
