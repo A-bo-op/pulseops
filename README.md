@@ -6,6 +6,20 @@ PulseOps is a full-stack API monitoring and incident-management platform. Users 
 
 > The demo uses Render's free tier. The first request after inactivity can take about a minute while the services wake up, and the free PostgreSQL database expires after 30 days.
 
+## Product preview
+
+### Landing page
+
+![PulseOps landing page](docs/images/pulseops-landing.png)
+
+### Operations overview
+
+![PulseOps operations dashboard](docs/images/pulseops-dashboard.png)
+
+### Monitor analytics
+
+![PulseOps monitor detail with uptime and response-time chart](docs/images/pulseops-monitor-detail.png)
+
 ## What it does
 
 - JWT-based registration, login and protected routes
@@ -146,4 +160,3 @@ Render's free web services sleep after 15 minutes without inbound traffic. When 
 ## Scope
 
 This repository intentionally keeps the MVP as a modular monolith. Redis, BullMQ, distributed workers, WebSockets, billing, teams, public status pages and notification integrations are deferred until product requirements or measured load justify them.
-
