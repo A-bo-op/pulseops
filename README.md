@@ -1,50 +1,81 @@
 # PulseOps
 
-PulseOps is a full-stack API monitoring platform. Users create projects and HTTP monitors; a backend scheduler checks those endpoints even when no dashboard is open, records results in PostgreSQL, and manages incidents automatically.
+PulseOps is a full-stack API monitoring and incident-management platform. Users create projects, register public HTTP endpoints, and let a backend scheduler check availability and latency even when the dashboard is closed.
 
-## MVP capabilities
+[Live application](https://pulseops-web.onrender.com) · [API health](https://pulseops-api-t6m0.onrender.com/health) · [How PulseOps works](docs/HOW_PULSEOPS_WORKS.md)
 
-- Account registration, login, JWT authentication, and current-user lookup
-- Project and monitor CRUD with ownership checks on every protected resource
-- GET/HEAD checks with configurable interval, timeout, and expected status
-- Backend scheduler with database leases to avoid overlapping scheduled checks
-- SSRF defense for localhost, private, loopback, link-local, reserved, and metadata destinations
-- Paginated results, uptime percentage, latency chart, dashboard metrics, and incident history
-- One incident after three consecutive failures; automatic resolution after recovery
-- Structured/redacted logs, body limits, rate limits, consistent API errors, and graceful shutdown
-- Unit and monitoring integration tests, plus optional PostgreSQL API integration tests
+> The demo uses Render's free tier. The first request after inactivity can take about a minute while the services wake up, and the free PostgreSQL database expires after 30 days.
+
+## What it does
+
+- JWT-based registration, login and protected routes
+- Project and monitor CRUD with per-user ownership enforcement
+- Configurable `GET` and `HEAD` checks, intervals, timeouts and expected status codes
+- Background scheduling independent of the browser
+- Response-time history, uptime percentage and dashboard metrics
+- Incident creation after three consecutive failures
+- Automatic incident resolution after a successful recovery check
+- Pause, resume and manual **Check now** controls
+- SSRF protection for localhost, private networks, reserved ranges and metadata endpoints
+- Structured logs with authorization data redacted
 
 ## Architecture
 
-```text
-Next.js dashboard → Express API → PostgreSQL
-                         ↓
-                  scheduler every 10s
-                         ↓
-                 claimed due monitors
-                         ↓
-             safe HTTP check + result + incident
+```mermaid
+flowchart TD
+    Browser["Next.js dashboard"] -->|"HTTPS + JWT"| API["Express API"]
+    API --> DB[("PostgreSQL")]
+    Scheduler["Scheduler every 10s"] --> API
+    API -->|"Validated HTTP check"| Target["Public API endpoint"]
+    API --> Results["Check result + incident state"]
+    Results --> DB
 ```
 
-The MVP intentionally does not use Redis, BullMQ, WebSockets, microservices, Kubernetes, billing, or AI. Those are deferred until measured scale or product requirements justify them.
+The scheduler lives in the backend process, not in the browser. Closing the dashboard therefore does not stop monitoring while the backend service remains running.
+
+## Monitoring flow
+
+1. The scheduler finds active monitors whose `nextCheckAt` is due.
+2. A database lease allows only one process to claim each monitor.
+3. PulseOps resolves DNS and rejects private, local, reserved and metadata IP addresses.
+4. The HTTP connection is pinned to the validated address and follows at most three revalidated redirects.
+5. The response status and latency are compared with the monitor configuration.
+6. A `check_results` row is stored and the next check is scheduled.
+7. Three consecutive failures open one incident; the next successful check resolves it.
+
+## Technology stack
+
+| Layer | Technology |
+| --- | --- |
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS, Recharts |
+| Backend | Node.js, Express 5, TypeScript, Undici |
+| Database | PostgreSQL, Prisma ORM |
+| Authentication | JWT, bcrypt |
+| Validation | Zod |
+| Testing | Vitest, Supertest |
+| Deployment | Render web services + Render PostgreSQL |
 
 ## Repository layout
 
 ```text
 apps/web          Next.js dashboard
-apps/api          Express API, scheduler, Prisma schema, tests
-packages/shared   API contracts shared across applications
+apps/api          Express API, scheduler, Prisma schema and tests
+packages/shared   Shared API contracts
+docs              Technical project documentation
 ```
-
-## Requirements
-
-- Node.js 20.9 or newer (Node 22 LTS recommended)
-- pnpm 11
-- Docker Desktop, or an existing PostgreSQL database
 
 ## Run locally
 
-1. Create local environment files.
+Requirements: Node.js 20.9 or newer, pnpm 11, and PostgreSQL.
+
+1. Create the local environment files.
+
+   Windows CMD:
+
+   ```cmd
+   copy apps\api\.env.example apps\api\.env
+   copy apps\web\.env.local.example apps\web\.env.local
+   ```
 
    macOS/Linux:
 
@@ -53,110 +84,66 @@ packages/shared   API contracts shared across applications
    cp apps/web/.env.local.example apps/web/.env.local
    ```
 
-   Windows PowerShell:
+2. Set a random `JWT_SECRET` containing at least 32 characters in `apps/api/.env`.
 
-   ```powershell
-   Copy-Item apps/api/.env.example apps/api/.env
-   Copy-Item apps/web/.env.local.example apps/web/.env.local
-   ```
-
-2. Replace `JWT_SECRET` in `apps/api/.env` with a random value of at least 32 characters.
-
-3. Start PostgreSQL.
-
-   ```bash
-   docker compose up -d postgres
-   ```
-
-4. Install packages and apply the database migration.
+3. Configure `DATABASE_URL`, install dependencies and apply the migration.
 
    ```bash
    pnpm install
    pnpm db:migrate
    ```
 
-5. Start both applications.
+4. Start the frontend and backend.
 
    ```bash
    pnpm dev
    ```
 
-Open `http://localhost:3000`. The API listens on `http://localhost:5000` and exposes `GET /health` for platform health checks.
+Open `http://localhost:3000`. The API runs at `http://localhost:5000` and exposes `GET /health`.
 
 ## Useful commands
 
 ```bash
-pnpm dev          # API and web development servers
-pnpm build        # production builds
-pnpm typecheck    # strict TypeScript checks
-pnpm test         # API unit and monitoring tests
-pnpm db:migrate   # create/apply a development migration
-pnpm db:studio    # inspect PostgreSQL through Prisma Studio
+pnpm dev          # Start the API and web development servers
+pnpm build        # Create production builds
+pnpm typecheck    # Run strict TypeScript checks
+pnpm test         # Run API unit and monitoring tests
+pnpm db:migrate   # Apply a development database migration
+pnpm db:studio    # Open Prisma Studio
 ```
 
-## Optional database-backed integration tests
+Current verification: **15 tests passed**, one optional database-backed integration suite skipped, and the production build completed successfully.
 
-The standard test run does not require PostgreSQL. To run the API authorization integration suite, create a separate test database, apply migrations, and provide its URL:
+## Security decisions
 
-```bash
-TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/pulseops_test pnpm --filter @pulseops/api test
-```
+- Passwords are hashed with bcrypt using cost factor 12.
+- Every protected resource query includes the authenticated user's ownership condition.
+- Unauthorized resource access returns `404` to avoid revealing whether the resource exists.
+- Monitor URLs accept only HTTP/HTTPS and cannot include embedded credentials.
+- DNS safety checks are repeated for redirects and connections are pinned to validated IP addresses.
+- Monitored response bodies, passwords, JWTs and authorization headers are not persisted in logs.
+- Request body limits, authentication rate limits and write rate limits are enabled.
 
-The suite verifies registration, protected endpoints, and that one user cannot read another user's project.
-
-## API surface
-
-All application routes are under `/api/v1`.
-
-```text
-POST   /auth/register
-POST   /auth/login
-GET    /auth/me
-
-GET    /projects
-POST   /projects
-GET    /projects/:projectId
-PATCH  /projects/:projectId
-DELETE /projects/:projectId
-
-GET    /projects/:projectId/monitors
-POST   /projects/:projectId/monitors
-GET    /monitors/:monitorId
-PATCH  /monitors/:monitorId
-DELETE /monitors/:monitorId
-POST   /monitors/:monitorId/pause
-POST   /monitors/:monitorId/resume
-POST   /monitors/:monitorId/check
-GET    /monitors/:monitorId/results?page=1&limit=20
-GET    /monitors/:monitorId/summary
-
-GET    /dashboard
-GET    /incidents
-GET    /projects/:projectId/incidents
-GET    /incidents/:incidentId
-```
-
-Protected endpoints expect `Authorization: Bearer <token>`.
-
-## Monitoring and incident flow
-
-1. Every scheduler tick queries active monitors whose `nextCheckAt` is due.
-2. An atomic database update leases each monitor to one process.
-3. DNS is resolved and every address is checked before a request is made.
-4. The request uses only validated addresses, follows at most three manually validated redirects, and enforces the configured timeout.
-5. PulseOps stores the result and schedules the next check.
-6. Three consecutive failures open a single incident. A successful check resolves it.
-
-## Security notes
-
-- Monitored response bodies and authorization headers are never persisted or logged.
-- DNS validation is repeated for each check and redirect; the HTTP connection is pinned to the validated address to reduce DNS-rebinding risk.
-- Resource lookups include the authenticated user's ownership condition. Unauthorized resources deliberately return `404` rather than revealing that they exist.
-- Browser JWT storage is a conscious learning-MVP tradeoff. For a public production service, introduce short-lived access tokens plus rotating refresh sessions in `HttpOnly`, `Secure`, `SameSite` cookies.
-- Use HTTPS in production and set `FRONTEND_URL` to the exact deployed frontend origin.
+Browser `localStorage` is used for the JWT as an explicit learning-MVP tradeoff. A public production service should use short-lived access tokens and rotating refresh sessions in `HttpOnly`, `Secure`, `SameSite` cookies.
 
 ## Deployment
 
-The included `render.yaml` provisions PostgreSQL and an always-on Node backend. Set `FRONTEND_URL` after deploying the frontend. For the web application, import the repository into Vercel, keep the repository root as the project root, use `pnpm --filter @pulseops/web build`, and set `NEXT_PUBLIC_API_URL` to the deployed API URL plus `/api/v1`.
+The root `render.yaml` provisions three resources:
 
-Free hosts may suspend an inactive backend. Continuous monitoring requires a plan/process that stays running; a request-triggered serverless function is not sufficient for the scheduler.
+```text
+pulseops-web       Next.js web service
+pulseops-api       Express API and monitoring scheduler
+pulseops-postgres  Managed PostgreSQL database
+```
+
+Required production variables:
+
+- API: `DATABASE_URL`, `JWT_SECRET`, `FRONTEND_URL`
+- Web: `NEXT_PUBLIC_API_URL`
+
+Render's free web services sleep after 15 minutes without inbound traffic. When the API sleeps, the in-process scheduler also stops. Continuous production monitoring therefore requires an always-running backend plan or a dedicated worker architecture.
+
+## Scope
+
+This repository intentionally keeps the MVP as a modular monolith. Redis, BullMQ, distributed workers, WebSockets, billing, teams, public status pages and notification integrations are deferred until product requirements or measured load justify them.
+
