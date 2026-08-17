@@ -33,3 +33,15 @@ services:
         value: 5000
       - key: MONITOR_LEASE_DURATION_MS
         value: 45000
+  - type: web
+    name: pulseops-web
+    runtime: node
+    plan: free
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build:shared && pnpm --filter @pulseops/web build
+    startCommand: pnpm --filter @pulseops/web start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
